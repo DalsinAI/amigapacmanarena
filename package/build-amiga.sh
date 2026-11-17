@@ -75,7 +75,7 @@ CC="$TC/bin/m68k-amigaos-gcc"
 # -fno-tree-loop-distribute-patterns: GCC 16's loop miscompile.
 CF="-noixemul -m68040 -m68881 -O2 -fomit-frame-pointer -fno-tree-loop-distribute-patterns -std=gnu99 -fcommon
     -w -Werror=implicit-function-declaration -D__amigaos__ -DSDL2 -DPA_OWN_GL_CONTEXT $SOUND
-    -I$UPSRC/src -I$UPSRC/src/include -I$UPSRC -I$UPSRC/platform/generic -I$UPSRC/lib3ds
+    -I$ROOT/amiga -I$UPSRC/src -I$UPSRC/src/include -I$UPSRC -I$UPSRC/platform/generic -I$UPSRC/lib3ds
     -I$UPSRC/GLU/src/include -I$UPSRC/GLU/src/libutil -I$SDK/include -I$SDK/include/SDL2"
 O="$WORK/obj"; rm -rf "$O"; mkdir -p "$O"
 n=0
