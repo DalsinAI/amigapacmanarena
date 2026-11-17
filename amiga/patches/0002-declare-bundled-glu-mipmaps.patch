@@ -1,0 +1,11 @@
+--- a/src/gfx.c
++++ b/src/gfx.c
+@@ -27,3 +27,8 @@
+ #include "gfx.h"
+ 
++/* The bundled SGI GLU subset supplies this function, but the Amiga
++ * SDK deliberately has no GL/glu.h declaration for it. */
++#ifdef __amigaos__
++extern GLint gluBuild2DMipmaps(GLenum, GLint, GLsizei, GLsizei, GLenum, GLenum, const void *);
++#endif
+ struct image_rgba32 *images = NULL;
