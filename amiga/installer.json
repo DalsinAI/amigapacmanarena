@@ -1,0 +1,13 @@
+{
+  "name": "Pacman Arena",
+  "version": "0.1-gfos1",
+  "drawer": "PacmanArena",
+  "program": "PacmanArena",
+  "cpu": "68040",
+  "fpu": true,
+  "space": 30000000,
+  "modules": [],
+  "parent": "Work:Games",
+  "badge": "icons/art/pacmanarena.png",
+  "script": "Install-PacmanArena"
+}

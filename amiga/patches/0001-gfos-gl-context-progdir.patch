@@ -1,0 +1,200 @@
+diff -ruN -x '*.o' -x pac.elf -x b.log -x out.txt a/src/file.c b/src/file.c
+--- a/src/file.c	2023-02-16 22:29:49.000000000 +0000
++++ b/src/file.c	2026-11-17 00:38:26.597002638 +0000
+@@ -37,7 +37,7 @@
+ 		exit(1);
+ 	}
+ 	
+-	sprintf(fname, "%s/%s", FILE_BASE_PATH, file);
++	sprintf(fname, FILE_PATH_FMT, FILE_BASE_PATH, file);
+ 	return fopen(fname, "rb");
+ }
+ 
+@@ -46,7 +46,7 @@
+ */
+ void file_read_values32(void *ret, int n, FILE *fp)
+ {
+-#ifdef SDL_LIL_ENDIAN
++#if SDL_BYTEORDER == SDL_LIL_ENDIAN /* (SDL_LIL_ENDIAN is always defined: the 68k never swapped) */
+ 	fread(ret, 4, n, fp);
+ #else
+ 	int c, *i;
+@@ -61,7 +61,7 @@
+ 
+ void file_write_values32(void *src, int n, FILE *fp)
+ {
+-#ifdef SDL_LIL_ENDIAN
++#if SDL_BYTEORDER == SDL_LIL_ENDIAN /* (SDL_LIL_ENDIAN is always defined: the 68k never swapped) */
+ 	fwrite(src, 4, n, fp);
+ #else
+ 	int c, tmp, *i;
+@@ -85,6 +85,6 @@
+ 		exit(1);
+ 	}
+ 
+-	sprintf(fname, "%s/%s", FILE_BASE_PATH, file);
++	sprintf(fname, FILE_PATH_FMT, FILE_BASE_PATH, file);
+ 	return fname;
+ }
+diff -ruN -x '*.o' -x pac.elf -x b.log -x out.txt a/src/gfx.c b/src/gfx.c
+--- a/src/gfx.c	2023-02-16 22:29:49.000000000 +0000
++++ b/src/gfx.c	2026-11-17 00:38:26.597384737 +0000
+@@ -49,7 +49,7 @@
+ 	memset(bmp, 0, sizeof(struct image_rgba32));
+ 	memset(&tga, 0, sizeof(struct raw_targa));
+   
+-	if((int)(fp=file_open(fname)) == 0) return NULL;
++	if((fp=file_open(fname)) == NULL) return NULL; /* (an int cast cut the pointer on 64-bit hosts) */
+ 	fread(&tga.id_len, sizeof(tga.id_len), 1, fp);
+ 	fread(&tga.cl_map, sizeof(tga.cl_map), 1, fp);
+   
+@@ -64,6 +64,9 @@
+ 	fread(&tga.width, sizeof(tga.width), 1, fp);
+ 	fread(&tga.height, sizeof(tga.height), 1, fp);
+ 	fread(&tga.bpp, sizeof(tga.bpp), 1, fp);
++	/* the TGA header is little-endian: right on the 68k too */
++	tga.width = SDL_SwapLE16(tga.width);
++	tga.height = SDL_SwapLE16(tga.height);
+ 	fseek(fp, tga.id_len+1, SEEK_CUR);
+ /*  
+     bmp->x = tga.width;
+diff -ruN -x '*.o' -x pac.elf -x b.log -x out.txt a/src/include/common.h b/src/include/common.h
+--- a/src/include/common.h	2023-02-16 22:29:49.000000000 +0000
++++ b/src/include/common.h	2026-11-17 00:38:33.823502499 +0000
+@@ -11,7 +11,9 @@
+ #include <math.h>
+ 
+ #include <SDL.h>
++#ifndef NOSOUND /* (a silent build needs no SDL_mixer) */
+ #include <SDL_mixer.h>
++#endif
+ #ifdef NETWORKING_GAME
+ #include <SDL_net.h>
+ #endif
+diff -ruN -x '*.o' -x pac.elf -x b.log -x out.txt a/src/include/file.h b/src/include/file.h
+--- a/src/include/file.h	2023-02-16 22:29:49.000000000 +0000
++++ b/src/include/file.h	2026-11-17 00:37:09.553173396 +0000
+@@ -25,17 +25,24 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ 
+-#ifndef DATADIR
++#if defined(__amigaos__)
++/* the game's drawer, wherever it was started from: "./gfx" is no AmigaDOS path */
++#define FILE_BASE_PATH "PROGDIR:"
++#define FILE_PATH_FMT "%s%s"
++#elif !defined(DATADIR)
+ #define FILE_BASE_PATH "."
+ #else
+ #define FILE_BASE_PATH DATADIR
+ #endif
++#ifndef FILE_PATH_FMT
++#define FILE_PATH_FMT "%s/%s"
++#endif
+ 
+ #define FILE_NAME_LEN 100
+ 
+ FILE *file_open(char *file);
+ void file_read_values32(void *ret, int n, FILE *fp);
+ void file_write_values32(void *src, int n, FILE *fp);
+-char *file_make_fname(char *file);
++char *file_make_fname(char *file);
+ 
+ #endif
+diff -ruN -x '*.o' -x pac.elf -x b.log -x out.txt a/src/include/screen.h b/src/include/screen.h
+--- a/src/include/screen.h	2023-02-16 22:29:49.000000000 +0000
++++ b/src/include/screen.h	2026-11-17 00:35:53.702579920 +0000
+@@ -45,6 +45,9 @@
+ #ifdef SDL2
+ 	SDL_Window *surface;
+ 	SDL_Renderer *rend;
++#ifdef PA_OWN_GL_CONTEXT
++	SDL_GLContext glctx;
++#endif
+ #else
+ 	SDL_Surface *surface;
+ #endif
+diff -ruN -x '*.o' -x pac.elf -x b.log -x out.txt a/src/screen.c b/src/screen.c
+--- a/src/screen.c	2023-02-16 22:29:49.000000000 +0000
++++ b/src/screen.c	2026-11-17 00:36:23.788908251 +0000
+@@ -72,8 +72,9 @@
+ 	SDL_ShowCursor(SDL_DISABLE);
+ #endif
+ 
+-	printf("%s\n", glGetString(GL_RENDERER));
+-	printf("%s\n", glGetString(GL_VENDOR));
++	/* (NULL without a context: printf("%s") of NULL crashed here) */
++	printf("%s\n", glGetString(GL_RENDERER) ? (const char *)glGetString(GL_RENDERER) : "(no GL renderer)");
++	printf("%s\n", glGetString(GL_VENDOR) ? (const char *)glGetString(GL_VENDOR) : "(no GL vendor)");
+ }
+ 
+ /*
+@@ -110,12 +111,20 @@
+     SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
+     SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
+ 
++#ifdef PA_OWN_GL_CONTEXT
++    /* what any GL has: a 16-bit depth buffer, no multisampling, a
++       software GL allowed (a 32-bit depth buffer and 8 x MSAA found no
++       visual at all on GFOpenGPU's GL or Mesa's software GL) */
++    SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 0);
++    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 16);
++#else
+     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 32);
+ 
+ 
+     SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
+     SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 8);
+     SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1); 
++#endif
+ 	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+ #endif
+ 
+@@ -136,6 +145,18 @@
+ #endif
+ 	SDL_WINDOW_OPENGL);
+ 	
++#ifdef PA_OWN_GL_CONTEXT
++	/* the game draws with GL itself: its own context, not one an SDL
++	   renderer may or may not make (GFOpenGPU's GL, and a software SDL
++	   renderer, give a renderer without one) */
++	if (scr.surface == NULL || (scr.glctx = SDL_GL_CreateContext(scr.surface)) == NULL)
++	{
++		printf("screen_switch_resolution: no GL window (%s)\n", SDL_GetError());
++		SDL_Quit();
++		exit(1);
++	}
++	SDL_GL_SetSwapInterval(1);
++#else
+ 	scr.rend = SDL_CreateRenderer(scr.surface, -1,
+ #ifdef NOVSYNC
+ 	0
+@@ -143,6 +164,7 @@
+ 	SDL_RENDERER_PRESENTVSYNC
+ #endif
+ 	);
++#endif
+ 	
+ #if defined(FULLSCREEN)
+ 	// Set resolution to whatever the screen uses
+@@ -152,6 +174,12 @@
+ 	scr.height = DM.h;
+ #endif
+ 
++#ifdef PA_OWN_GL_CONTEXT
++	glViewport(0, 0, scr.width, scr.height);
++	glClearColor(0, 0, 0, 1);
++	glClear(GL_COLOR_BUFFER_BIT);
++	SDL_GL_SwapWindow(scr.surface);
++#else
+ 	//Nearest neighbor scaling
+ 	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, 0);
+ 	SDL_RenderSetLogicalSize(scr.rend, scr.width, scr.height);
+@@ -160,6 +188,7 @@
+ 	SDL_SetRenderDrawColor(scr.rend, 0, 0, 0, 255);
+ 	SDL_RenderClear(scr.rend);
+ 	SDL_RenderPresent(scr.rend);
++#endif
+ 	
+ #else
+ 	scr.surface = SDL_SetVideoMode(scr.width, scr.height, scr.bpp, SDL_OPENGL | scr.fullscreen);
