@@ -1,0 +1,10 @@
+--- a/src/main/main.c
++++ b/src/main/main.c
+@@ -30,6 +30,7 @@
+ #include "audio.h"
+ #include "object.h"
+ #include "game.h"
++#include "render_map.h" /* declaration of load_map_assets() */
+ #include "map.h"
+ #include "player.h"
+ #include "render.h"
